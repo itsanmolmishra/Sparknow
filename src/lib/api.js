@@ -1,11 +1,7 @@
-// In development: Vite proxy handles it (/api)
-// In production: Call Netlify function directly (/.netlify/functions/chat)
+// API URL for all environments
+// Works with: Vite dev server, Netlify, Vercel
 const getApiUrl = () => {
-  if (import.meta.env.DEV) {
-    return '/api/chat'
-  }
-  // Production - call Netlify function directly
-  return '/.netlify/functions/chat'
+  return '/api/chat'
 }
 
 /**
