@@ -5,6 +5,10 @@
 [build.environment]
   NODE_VERSION = "18"
 
+[functions]
+  # Set max timeout (10s free, 26s Pro plan)
+  timeout = 26
+
 # SPA fallback - redirect all routes to index.html
 [[redirects]]
   from = "/*"
