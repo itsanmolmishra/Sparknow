@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { MOCK_SUGGESTED_QUESTIONS } from "@/lib/mock-data"
-import { sendChatMessage, generateSessionId } from "@/lib/api"
+import { sendChatMessage, generateSessionId, mapApiResponseToArticle } from "@/lib/api"
 import { Link } from "react-router-dom"
 import {
   ArrowLeft,
@@ -185,50 +185,14 @@ export const ChatWelcome = () => {
       // Call the real API
       const response = await sendChatMessage(userQuery, sessionId)
 
-      const normalizeText = (text = "") =>
-        text.replace(/\\\*/g, "*").replace(/\\n/g, "\n").trim()
-
-      const buildAnswerSummary = (answerData) => {
-        return normalizeText(answerData?.answer_text || "")
-      }
-
-      const buildAnswerSections = (answerData) => {
-        const sections = Array.isArray(answerData?.formatting?.sections)
-          ? answerData.formatting.sections
-          : []
-        const seenParagraphs = new Set()
-
-        return sections
-          .map((section, sectionIndex) => {
-            const title = normalizeText(section?.title || "")
-            const paragraphs = Array.isArray(section?.paragraphs) ? section.paragraphs : []
-            const cleanedParagraphs = paragraphs
-              .map((paragraph) => normalizeText(paragraph))
-              .filter((paragraph) => paragraph.length > 0)
-              .filter((paragraph) => {
-                const key = paragraph.toLowerCase()
-                if (seenParagraphs.has(key)) return false
-                seenParagraphs.add(key)
-                return true
-              })
-
-            if (!title && cleanedParagraphs.length === 0) return null
-
-            return {
-              id: `section-${sectionIndex}`,
-              title,
-              paragraphs: cleanedParagraphs,
-            }
-          })
-          .filter(Boolean)
-      }
-
-      const buildCopyText = (summary, sections) => {
+      const buildCopyTextFromArticle = (article) => {
         const lines = []
-        if (summary) lines.push(summary)
-        sections.forEach((section) => {
+        article.sections.forEach((section) => {
           if (section.title) lines.push(section.title)
           section.paragraphs.forEach((paragraph) => lines.push(paragraph))
+          if (section.bullets.length > 0) {
+            section.bullets.forEach((bullet) => lines.push(`- ${bullet}`))
+          }
           lines.push("")
         })
         return lines.join("\n").trim()
@@ -238,9 +202,8 @@ export const ChatWelcome = () => {
       if (response && response.answer) {
         const answerData = response.answer
         
-        const summary = buildAnswerSummary(answerData)
-        const sections = buildAnswerSections(answerData)
-        const formattedContent = buildCopyText(summary, sections)
+        const article = mapApiResponseToArticle(response)
+        const formattedContent = buildCopyTextFromArticle(article)
 
         // Map video_resources from API to video sources for display
         const videoSources = (answerData.video_resources || []).map((video, index) => ({
@@ -313,8 +276,7 @@ export const ChatWelcome = () => {
           claims: answerData.claims || [],
           citationDetails: citationDetails,
           videoResources: answerData.video_resources || [],
-          summary,
-          sections,
+          article,
         }
 
         setMessages((prev) => [...prev, assistantMessage])

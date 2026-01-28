@@ -19,12 +19,11 @@ export function EnhancedChatResponse({
   const [isCopied, setIsCopied] = React.useState(false)
   const [isSaved, setIsSaved] = React.useState(false)
   const [loadingIndices, setLoadingIndices] = React.useState(new Set())
-  const summary = message.summary || ""
-  const sections = Array.isArray(message.sections) ? message.sections : []
-  const hasStructuredContent = summary.length > 0 || sections.length > 0
+  const article = message.article || { sections: [] }
+  const hasStructuredContent = Array.isArray(article.sections) && article.sections.length > 0
 
   const handleCopy = async () => {
-    await navigator.clipboard.writeText(message.content || summary)
+    await navigator.clipboard.writeText(message.content || "")
     setIsCopied(true)
     setTimeout(() => setIsCopied(false), 2000)
   }
@@ -164,41 +163,48 @@ export function EnhancedChatResponse({
   }
 
   const renderStructuredContent = () => (
-    <div className="space-y-6">
-      {summary && (
-        <div className="rounded-xl border border-gray-100 bg-gradient-to-br from-white via-white to-sparq/5 p-4 shadow-sm dark:border-gray-800 dark:from-gray-900 dark:via-gray-900 dark:to-sparq/10">
-          <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
-            Summary
-          </p>
-          <p className="mt-2 text-sm text-gray-700 dark:text-gray-200 leading-relaxed">
-            {renderContentWithCitations(summary)}
-          </p>
-        </div>
-      )}
-
-      {sections.map((section) => (
-        <div key={section.id} className="space-y-2">
+    <article className="space-y-10">
+      {article.sections.map((section, sectionIndex) => (
+        <section key={section.id} className="space-y-4">
           {section.title && (
-            <div className="flex items-center gap-2">
-              <span className="h-1.5 w-1.5 rounded-full bg-sparq/80" />
-              <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+            <div className="space-y-2">
+              <h2 className="text-lg sm:text-xl font-semibold tracking-tight text-gray-900 dark:text-gray-100">
                 {section.title}
-              </h4>
+              </h2>
+              <div className="h-px w-12 bg-sparq/30" />
             </div>
           )}
-          <div className="space-y-3">
+          <div className="space-y-4">
             {section.paragraphs.map((paragraph, paragraphIndex) => (
               <p
                 key={`${section.id}-p-${paragraphIndex}`}
-                className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed"
+                className="text-sm sm:text-base text-gray-700 dark:text-gray-300 leading-relaxed"
               >
                 {renderContentWithCitations(paragraph)}
               </p>
             ))}
           </div>
-        </div>
+          {section.bullets.length > 0 && (
+            <div className="space-y-3">
+              {section.bullets.map((bullet, bulletIndex) => (
+                <p
+                  key={`${section.id}-b-${bulletIndex}`}
+                  className="text-sm sm:text-base text-gray-700 dark:text-gray-300 leading-relaxed"
+                >
+                  <span className="mr-2 text-sparq">•</span>
+                  {renderContentWithCitations(bullet)}
+                </p>
+              ))}
+            </div>
+          )}
+          {sectionIndex < article.sections.length - 1 && (
+            <div className="pt-2">
+              <div className="h-px w-full bg-gray-200/70 dark:bg-gray-700/70" />
+            </div>
+          )}
+        </section>
       ))}
-    </div>
+    </article>
   )
 
   // Check if this is a simple greeting response (no video resources)
