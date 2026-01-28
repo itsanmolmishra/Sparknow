@@ -1,12 +1,14 @@
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { StructuredAnswerRenderer } from "@/components/chat/structured-answer-renderer"
 import {
     Tooltip,
     TooltipContent,
     TooltipProvider,
     TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { Bookmark, Check, Copy, ExternalLink, Share2, ThumbsDown, ThumbsUp, Video, User, Clock, Play } from "lucide-react"
+import { Bookmark, Check, Copy, ExternalLink, Share2, ThumbsDown, ThumbsUp, Video, User, Lightbulb, Play } from "lucide-react"
 import * as React from "react"
 
 export function EnhancedChatResponse({
@@ -19,8 +21,8 @@ export function EnhancedChatResponse({
   const [isCopied, setIsCopied] = React.useState(false)
   const [isSaved, setIsSaved] = React.useState(false)
   const [loadingIndices, setLoadingIndices] = React.useState(new Set())
-  const article = message.article || { sections: [] }
-  const hasStructuredContent = Array.isArray(article.sections) && article.sections.length > 0
+  const structuredContent = message.structuredContent || []
+  const hasStructuredContent = Array.isArray(structuredContent) && structuredContent.length > 0
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(message.content || "")
@@ -35,6 +37,14 @@ export function EnhancedChatResponse({
   // Get citation details from message if available
   const citationDetails = message.citationDetails || {}
   const videoResources = message.videoResources || []
+  const insightsCount = Number.isFinite(message.insightsCount)
+    ? message.insightsCount
+    : (message.claims?.length || 0)
+  const expertsCount = experts.length || message.sourceCount?.expertCount || 0
+  const timeframeLabel = message.sourceCount?.timeframe || "Last 30 days"
+
+  const displayExperts = experts.slice(0, 5)
+  const remainingExperts = Math.max(0, expertsCount - displayExperts.length)
 
   // Build a map of citation_id to video info for quick lookup
   const getCitationUrl = (citationId) => {
@@ -66,36 +76,12 @@ export function EnhancedChatResponse({
     return 'Unknown'
   }
 
-  // Parse markdown-style content: **bold**, *italic*, bullet points
-  const parseMarkdownText = (text) => {
-    // Handle bold text **text**
-    let result = text
-    const boldParts = []
-    let lastIndex = 0
-    const boldRegex = /\*\*([^*]+)\*\*/g
-    let match
-
-    while ((match = boldRegex.exec(text)) !== null) {
-      if (match.index > lastIndex) {
-        boldParts.push(text.substring(lastIndex, match.index))
-      }
-      boldParts.push(<strong key={`bold-${match.index}`} className="font-semibold text-gray-900 dark:text-gray-100">{match[1]}</strong>)
-      lastIndex = match.index + match[0].length
-    }
-    if (lastIndex < text.length) {
-      boldParts.push(text.substring(lastIndex))
-    }
-
-    return boldParts.length > 0 ? boldParts : text
-  }
-
   const renderContentWithCitations = (text) => {
     const citationRegex = /\[(\d+)\]/g
     const parts = []
     let lastIndex = 0
     let match
 
-    // First parse markdown, then handle citations
     const processedText = typeof text === 'string' ? text : ''
 
     while ((match = citationRegex.exec(processedText)) !== null) {
@@ -106,7 +92,7 @@ export function EnhancedChatResponse({
 
       if (match.index > lastIndex) {
         const textBefore = processedText.substring(lastIndex, match.index)
-        parts.push(<span key={`text-${lastIndex}`}>{parseMarkdownText(textBefore)}</span>)
+        parts.push(<span key={`text-${lastIndex}`}>{textBefore}</span>)
       }
 
       parts.push(
@@ -156,56 +142,11 @@ export function EnhancedChatResponse({
 
     if (lastIndex < processedText.length) {
       const textAfter = processedText.substring(lastIndex)
-      parts.push(<span key={`text-end`}>{parseMarkdownText(textAfter)}</span>)
+      parts.push(<span key={`text-end`}>{textAfter}</span>)
     }
 
-    return parts.length > 0 ? parts : parseMarkdownText(processedText)
+    return parts.length > 0 ? parts : processedText
   }
-
-  const renderStructuredContent = () => (
-    <article className="space-y-10">
-      {article.sections.map((section, sectionIndex) => (
-        <section key={section.id} className="space-y-4">
-          {section.title && (
-            <div className="space-y-2">
-              <h2 className="text-lg sm:text-xl font-semibold tracking-tight text-gray-900 dark:text-gray-100">
-                {section.title}
-              </h2>
-              <div className="h-px w-12 bg-sparq/30" />
-            </div>
-          )}
-          <div className="space-y-4">
-            {section.paragraphs.map((paragraph, paragraphIndex) => (
-              <p
-                key={`${section.id}-p-${paragraphIndex}`}
-                className="text-sm sm:text-base text-gray-700 dark:text-gray-300 leading-relaxed"
-              >
-                {renderContentWithCitations(paragraph)}
-              </p>
-            ))}
-          </div>
-          {section.bullets.length > 0 && (
-            <div className="space-y-3">
-              {section.bullets.map((bullet, bulletIndex) => (
-                <p
-                  key={`${section.id}-b-${bulletIndex}`}
-                  className="text-sm sm:text-base text-gray-700 dark:text-gray-300 leading-relaxed"
-                >
-                  <span className="mr-2 text-sparq">•</span>
-                  {renderContentWithCitations(bullet)}
-                </p>
-              ))}
-            </div>
-          )}
-          {sectionIndex < article.sections.length - 1 && (
-            <div className="pt-2">
-              <div className="h-px w-full bg-gray-200/70 dark:bg-gray-700/70" />
-            </div>
-          )}
-        </section>
-      ))}
-    </article>
-  )
 
   // Check if this is a simple greeting response (no video resources)
   const isGreetingResponse = message.isGreeting || (!videoResources.length && !videos.length && !message.sourceCount)
@@ -238,7 +179,7 @@ export function EnhancedChatResponse({
       <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-sparq to-purple-600 flex items-center justify-center">
         <span className="text-white text-xs font-bold">AI</span>
       </div>
-      <div className="flex-1 max-w-4xl space-y-4">
+      <div className="flex-1 w-full space-y-4">
         {/* Answer Type Badge */}
         {message.answerType && (
           <Badge className={`text-xs font-semibold px-2.5 py-1 ${
@@ -252,98 +193,111 @@ export function EnhancedChatResponse({
           </Badge>
         )}
 
-        {/* Main Response Content */}
-        <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-gray-900">
-          {hasStructuredContent ? (
-            renderStructuredContent()
-          ) : (
-            <div className="space-y-4">
-              {message.content.split("\n").map((line, index) => {
-                const trimmedLine = line.trim()
-                if (trimmedLine === "") return null
-
-                // Handle bullet points with *
-                if (trimmedLine.startsWith("*   ") || trimmedLine.startsWith("* ")) {
-                  const bulletContent = trimmedLine.replace(/^\*\s+/, "")
-                  return (
-                    <div key={index} className="flex items-start gap-3 pl-2">
-                      <span className="text-sparq mt-1.5 text-lg leading-none">•</span>
-                      <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed flex-1">
-                        {renderContentWithCitations(bulletContent)}
-                      </p>
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,_1fr)_280px]">
+          <div className="space-y-4">
+            {(expertsCount > 0 || insightsCount > 0) && (
+              <div className="space-y-2">
+                {expertsCount > 0 && (
+                  <div className="flex items-center gap-3 text-sm text-gray-600 dark:text-gray-400">
+                    <div className="flex items-center -space-x-2">
+                      {displayExperts.map((expert) => (
+                        <Avatar key={expert.id} className="h-7 w-7 border-2 border-white dark:border-gray-800">
+                          <AvatarImage
+                            src={expert.avatar || `https://avatar.vercel.sh/${expert.name}`}
+                            alt={expert.name}
+                          />
+                          <AvatarFallback>{expert.name?.charAt(0) || 'E'}</AvatarFallback>
+                        </Avatar>
+                      ))}
+                      {remainingExperts > 0 && (
+                        <div className="flex h-7 w-7 items-center justify-center rounded-full border-2 border-white bg-gray-200 text-[10px] font-semibold text-gray-600 dark:border-gray-800 dark:bg-gray-700 dark:text-gray-300">
+                          +{remainingExperts}
+                        </div>
+                      )}
                     </div>
-                  )
-                }
+                    <span>Perspectives from our Sparq's</span>
+                  </div>
+                )}
+                {(expertsCount > 0 || insightsCount > 0) && (
+                  <div className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
+                    <Lightbulb className="h-4 w-4 text-sparq" />
+                    <span>
+                      Based on {insightsCount || 1} insights from {expertsCount || 1} experts ({timeframeLabel})
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
 
-                // Handle dash bullet points
-                if (trimmedLine.startsWith("- ")) {
-                  const bulletContent = trimmedLine.replace(/^-\s+/, "")
-                  return (
-                    <div key={index} className="flex items-start gap-3 pl-2">
-                      <span className="text-sparq mt-1.5 text-lg leading-none">•</span>
-                      <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed flex-1">
-                        {renderContentWithCitations(bulletContent)}
+            {/* Main Response Content */}
+            <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-gray-900">
+              {hasStructuredContent ? (
+                <StructuredAnswerRenderer
+                  sections={structuredContent}
+                  renderText={renderContentWithCitations}
+                />
+              ) : (
+                <div className="space-y-4">
+                  {(message.content || "").split("\n").map((line, index) => {
+                    const trimmedLine = line.trim()
+                    if (trimmedLine === "") return null
+                    return (
+                      <p key={index} className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
+                        {renderContentWithCitations(trimmedLine)}
                       </p>
-                    </div>
-                  )
-                }
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
 
-                // Regular paragraph
-                return (
-                  <p key={index} className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
-                    {renderContentWithCitations(trimmedLine)}
-                  </p>
-                )
-              })}
+          {/* Video Sources Section */}
+          {videoResources.length > 0 && (
+            <div className="space-y-3">
+              <p className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                Sources ({videoResources.length})
+              </p>
+              <div className="grid gap-3">
+                {videoResources.map((video, index) => (
+                  <a
+                    key={video.video_id || index}
+                    href={video.url || `https://www.youtube.com/watch?v=${video.video_id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="group flex items-center gap-3 rounded-lg border border-gray-200 bg-white p-3 transition-all hover:border-sparq/50 hover:shadow-md dark:border-gray-700 dark:bg-gray-900 dark:hover:border-sparq/50"
+                  >
+                    <div className="relative flex-shrink-0 w-24 h-16 rounded-md overflow-hidden bg-gray-100 dark:bg-gray-800">
+                      <img
+                        src={video.thumbnail_url || `https://img.youtube.com/vi/${video.video_id}/mqdefault.jpg`}
+                        alt={video.title || 'Video thumbnail'}
+                        className="w-full h-full object-cover"
+                        onError={(e) => {
+                          e.target.src = `https://img.youtube.com/vi/${video.video_id}/default.jpg`
+                        }}
+                      />
+                      <div className="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <Play className="w-6 h-6 text-white fill-white" />
+                      </div>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-gray-900 dark:text-gray-100 line-clamp-2 group-hover:text-sparq transition-colors">
+                        {video.title || `Video ${video.video_id}`}
+                      </p>
+                      <div className="flex items-center gap-2 mt-1">
+                        <Video className="w-3 h-3 text-red-500" />
+                        <span className="text-xs text-gray-500 dark:text-gray-400">
+                          {video.citation_count || 0} citations
+                        </span>
+                      </div>
+                    </div>
+                    <ExternalLink className="w-4 h-4 text-gray-400 group-hover:text-sparq transition-colors flex-shrink-0" />
+                  </a>
+                ))}
+              </div>
             </div>
           )}
         </div>
-
-        {/* Video Sources Section */}
-        {videoResources.length > 0 && (
-          <div className="space-y-3">
-            <p className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-              Sources ({videoResources.length})
-            </p>
-            <div className="grid gap-3">
-              {videoResources.map((video, index) => (
-                <a
-                  key={video.video_id || index}
-                  href={video.url || `https://www.youtube.com/watch?v=${video.video_id}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="group flex items-center gap-3 rounded-lg border border-gray-200 bg-white p-3 transition-all hover:border-sparq/50 hover:shadow-md dark:border-gray-700 dark:bg-gray-900 dark:hover:border-sparq/50"
-                >
-                  <div className="relative flex-shrink-0 w-24 h-16 rounded-md overflow-hidden bg-gray-100 dark:bg-gray-800">
-                    <img
-                      src={video.thumbnail_url || `https://img.youtube.com/vi/${video.video_id}/mqdefault.jpg`}
-                      alt={video.title || 'Video thumbnail'}
-                      className="w-full h-full object-cover"
-                      onError={(e) => {
-                        e.target.src = `https://img.youtube.com/vi/${video.video_id}/default.jpg`
-                      }}
-                    />
-                    <div className="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <Play className="w-6 h-6 text-white fill-white" />
-                    </div>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-900 dark:text-gray-100 line-clamp-2 group-hover:text-sparq transition-colors">
-                      {video.title || `Video ${video.video_id}`}
-                    </p>
-                    <div className="flex items-center gap-2 mt-1">
-                      <Video className="w-3 h-3 text-red-500" />
-                      <span className="text-xs text-gray-500 dark:text-gray-400">
-                        {video.citation_count || 0} citations
-                      </span>
-                    </div>
-                  </div>
-                  <ExternalLink className="w-4 h-4 text-gray-400 group-hover:text-sparq transition-colors flex-shrink-0" />
-                </a>
-              ))}
-            </div>
-          </div>
-        )}
 
         {/* Source Stats */}
         {message.sourceCount && (message.sourceCount.videoCount > 0 || message.sourceCount.expertCount > 0) && (

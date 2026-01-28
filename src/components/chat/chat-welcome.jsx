@@ -1,13 +1,14 @@
 import { ChatHistoryFilters } from "@/components/chat/chat-history-filters"
 import { EnhancedChatResponse } from "@/components/chat/enhanced-chat-response"
 import { MentionAutocomplete } from "@/components/chat/mention-autocomplete"
+import { PageContainer } from "@/components/page-container"
 import { useTheme } from "@/components/theme-provider"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { MOCK_SUGGESTED_QUESTIONS } from "@/lib/mock-data"
-import { sendChatMessage, generateSessionId, mapApiResponseToArticle } from "@/lib/api"
+import { sendChatMessage, generateSessionId } from "@/lib/api"
 import { Link } from "react-router-dom"
 import {
   ArrowLeft,
@@ -185,14 +186,16 @@ export const ChatWelcome = () => {
       // Call the real API
       const response = await sendChatMessage(userQuery, sessionId)
 
-      const buildCopyTextFromArticle = (article) => {
+      const buildCopyTextFromStructured = (sections = []) => {
         const lines = []
-        article.sections.forEach((section) => {
-          if (section.title) lines.push(section.title)
-          section.paragraphs.forEach((paragraph) => lines.push(paragraph))
-          if (section.bullets.length > 0) {
-            section.bullets.forEach((bullet) => lines.push(`- ${bullet}`))
-          }
+        sections.forEach((section) => {
+          if (section?.title) lines.push(section.title)
+          const content = Array.isArray(section?.content) ? section.content : []
+          content.forEach((entry) => {
+            if (typeof entry === "string" && entry.trim()) {
+              lines.push(entry)
+            }
+          })
           lines.push("")
         })
         return lines.join("\n").trim()
@@ -202,8 +205,8 @@ export const ChatWelcome = () => {
       if (response && response.answer) {
         const answerData = response.answer
         
-        const article = mapApiResponseToArticle(response)
-        const formattedContent = buildCopyTextFromArticle(article)
+        const structuredContent = answerData?.formatting?.structured_content || []
+        const formattedContent = buildCopyTextFromStructured(structuredContent)
 
         // Map video_resources from API to video sources for display
         const videoSources = (answerData.video_resources || []).map((video, index) => ({
@@ -237,8 +240,27 @@ export const ChatWelcome = () => {
           setSelectedExperts([])
         }
 
-        // Build citation lookup from claims for tooltip details
+        // Build citation lookup from sources + claims for tooltip details
         const citationDetails = {}
+
+        const sources = Array.isArray(answerData.sources) ? answerData.sources : []
+        sources.forEach((source, index) => {
+          const citationId =
+            source?.citation_id ??
+            source?.source_id ??
+            source?.sourceId ??
+            source?.id ??
+            index + 1
+          if (!citationId || citationDetails[citationId]) return
+          citationDetails[citationId] = {
+            title: source?.title || source?.name || source?.source || 'Source',
+            speaker: source?.speaker || source?.author || source?.publisher || 'Unknown',
+            startTime: source?.start_time || 0,
+            url: source?.url || source?.link || '',
+            videoId: source?.video_id || '',
+          }
+        })
+
         if (answerData.claims && answerData.claims.length > 0) {
           answerData.claims.forEach((claimObj) => {
             if (claimObj.citations && claimObj.citations.length > 0) {
@@ -276,7 +298,7 @@ export const ChatWelcome = () => {
           claims: answerData.claims || [],
           citationDetails: citationDetails,
           videoResources: answerData.video_resources || [],
-          article,
+          structuredContent,
         }
 
         setMessages((prev) => [...prev, assistantMessage])
@@ -346,8 +368,8 @@ export const ChatWelcome = () => {
   const activeFilters = getActiveFilters()
 
   return (
-    <div className="flex min-h-[calc(100vh-4rem)] flex-col items-center justify-center px-4 py-12 overflow-visible">
-      <div className="w-full max-w-5xl space-y-8 overflow-visible">
+    <PageContainer>
+      <div className="w-full space-y-8 overflow-visible">
         {/* Show logo only when no messages */}
         {messages.length === 0 && (
           <div className="text-center space-y-3">
@@ -361,13 +383,13 @@ export const ChatWelcome = () => {
 
         {/* Show messages when they exist */}
         {messages.length > 0 && (
-          <div className="rounded-2xl border border-gray-200/70 bg-white/90 shadow-lg backdrop-blur-sm dark:border-gray-700/70 dark:bg-gray-900/80">
-            <div className="flex items-center gap-4 border-b border-gray-200/70 px-6 py-4 dark:border-gray-700/70">
+          <div className="rounded-3xl bg-white shadow-lg">
+            <div className="flex items-center gap-4 border-b border-gray-200 px-6 py-4">
               <Button
                 onClick={handleBackClick}
                 variant="ghost"
                 size="icon"
-                className="rounded-lg text-muted-foreground hover:text-foreground dark:text-zinc-400 dark:hover:text-white"
+                className="rounded-lg text-muted-foreground hover:text-foreground"
               >
                 <ArrowLeft className="h-5 w-5" />
                 <span className="sr-only">Back</span>
@@ -429,7 +451,7 @@ export const ChatWelcome = () => {
 
         {/* Main Input Form */}
         <div className="space-y-4">
-          <div className="rounded-2xl border border-gray-200/70 bg-white/90 p-4 shadow-lg backdrop-blur-sm dark:border-gray-700/70 dark:bg-gray-900/80">
+          <div className="rounded-2xl bg-white p-4 shadow-md">
             <div className="relative w-full flex items-center gap-2 overflow-visible">
               <form onSubmit={handleSubmit} className="relative flex-1 overflow-visible">
               <TooltipProvider>
@@ -441,7 +463,7 @@ export const ChatWelcome = () => {
                       variant="ghost"
                       size="icon"
                       onClick={() => setShowFilters(true)}
-                      className="absolute left-3 top-1/2 -translate-y-1/2 h-10 w-10 rounded-lg text-muted-foreground hover:text-foreground dark:text-zinc-400 dark:hover:text-white z-10"
+                      className="absolute left-3 top-1/2 -translate-y-1/2 h-10 w-10 rounded-lg text-muted-foreground hover:text-foreground z-10"
                     >
                       <SlidersHorizontal className="h-5 w-5" />
                       <span className="sr-only">Filters</span>
@@ -457,7 +479,7 @@ export const ChatWelcome = () => {
                 value={input}
                 onChange={handleInputChange}
                 placeholder="Ask @YourFavouriteExpert almost anything"
-                className="h-24 pl-16 pr-28 text-base rounded-2xl bg-gray-50/80 dark:bg-gray-800/60"
+                className="h-24 pl-16 pr-28 text-base rounded-2xl bg-gray-50"
               />
               <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1 z-10">
                 {hasInput && (
@@ -474,7 +496,7 @@ export const ChatWelcome = () => {
                   type="button"
                   variant="ghost"
                   size="icon"
-                  className="h-10 w-10 rounded-lg text-muted-foreground hover:text-foreground dark:text-zinc-400 dark:hover:text-white"
+                  className="h-10 w-10 rounded-lg text-muted-foreground hover:text-foreground"
                 >
                   <Mic className="h-5 w-5" />
                   <span className="sr-only">Voice input</span>
@@ -497,7 +519,7 @@ export const ChatWelcome = () => {
                 variant="ghost"
                 size="icon"
                 onClick={() => setShowDropdownMenu(!showDropdownMenu)}
-                className="h-10 w-10 rounded-lg text-muted-foreground hover:text-foreground dark:text-zinc-400 dark:hover:text-white cursor-pointer"
+                className="h-10 w-10 rounded-lg text-muted-foreground hover:text-foreground cursor-pointer"
               >
                 <EllipsisVertical className="h-5 w-5" />
                 <span className="sr-only">More</span>
@@ -505,7 +527,7 @@ export const ChatWelcome = () => {
 
               {showDropdownMenu && (
                 <div
-                  className="absolute right-0 top-full mt-2 w-56 bg-popover text-popover-foreground rounded-md border dark:border-zinc-800 shadow-md p-1 z-[9999]"
+                  className="absolute right-0 top-full mt-2 w-56 bg-popover text-popover-foreground rounded-md border shadow-md p-1 z-[9999]"
                   style={{ zIndex: 9999 }}
                 >
                   <button
@@ -559,7 +581,7 @@ export const ChatWelcome = () => {
                     <span>Ask an Expert/Collection</span>
                   </button>
                   
-                  <div className="bg-border dark:bg-zinc-800 -mx-1 my-1 h-px" />
+                  <div className="bg-border -mx-1 my-1 h-px" />
                   
                   <button
                     onClick={() => {
@@ -640,7 +662,7 @@ export const ChatWelcome = () => {
         open={showFilters}
         onOpenChange={setShowFilters}
       />
-    </div>
+    </PageContainer>
   )
 }
 

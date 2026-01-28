@@ -39,13 +39,18 @@ export async function sendChatMessage(query, sessionId = 'abch1') {
 }
 
 const normalizeArticleText = (text = '') =>
-  text.replace(/\\\*/g, '*').replace(/\\n/g, '\n').trim()
+  text
+    .replace(/\\\*/g, '*')
+    .replace(/\\n/g, '\n')
+    .replace(/\s+/g, ' ')
+    .trim()
 
 const splitInlineHeadings = (text = '') => {
   const normalized = normalizeArticleText(text)
   if (!normalized) return []
+  const detectText = normalized.replace(/\*\*([^*]+)\*\*/g, '$1')
   const headingRegex = /([A-Z][A-Za-z0-9&'’\- ]{2,80}?):\s*/g
-  const matches = [...normalized.matchAll(headingRegex)]
+  const matches = [...detectText.matchAll(headingRegex)]
   if (matches.length === 0) return [{ text: normalized }]
 
   const results = []
@@ -54,11 +59,11 @@ const splitInlineHeadings = (text = '') => {
     const heading = match[1].trim()
     const headingStart = match.index
     const headingEnd = match.index + match[0].length
-    const before = normalized.slice(cursor, headingStart).trim()
+    const before = detectText.slice(cursor, headingStart).trim()
     if (before) results.push({ text: before })
 
     const nextStart = index + 1 < matches.length ? matches[index + 1].index : normalized.length
-    let body = normalized.slice(headingEnd, nextStart).trim()
+    let body = detectText.slice(headingEnd, nextStart).trim()
     if (body.toLowerCase().startsWith(heading.toLowerCase())) {
       body = body.slice(heading.length).trim()
     }
@@ -71,6 +76,7 @@ const splitInlineHeadings = (text = '') => {
 
 /**
  * Map API response to clean article structure.
+ * Supports both legacy and structured answer payloads.
  * @param {Object} apiResponse - Raw API response
  * @returns {{ sections: Array<{id: string, title: string, paragraphs: string[], bullets: string[]}> }}
  */
@@ -97,15 +103,66 @@ export function mapApiResponseToArticle(apiResponse) {
     target.push(normalized)
   }
 
-  const answerText = normalizeArticleText(answer?.answer_text || '')
-  if (answerText) {
-    sections.push({
-      id: 'answer',
-      title: 'Answer',
-      paragraphs: [answerText],
-      bullets: [],
-    })
+  const formatCitations = (citations = []) => {
+    if (!Array.isArray(citations) || citations.length === 0) return ''
+    const ids = citations
+      .map((citation, index) => {
+        if (typeof citation === 'number' || typeof citation === 'string') {
+          return citation
+        }
+        if (!citation || typeof citation !== 'object') return null
+        return (
+          citation.citation_id ??
+          citation.source_id ??
+          citation.sourceId ??
+          citation.id ??
+          index + 1
+        )
+      })
+      .filter(Boolean)
+    if (ids.length === 0) return ''
+    const uniqueIds = [...new Set(ids)]
+    return ` ${uniqueIds.map((id) => `[${id}]`).join('')}`
   }
+
+  const answerTitle = normalizeArticleText(answer?.title || '')
+  const answerSummary = normalizeArticleText(answer?.summary || '')
+  if (answerTitle || answerSummary) {
+    const introSection = {
+      id: 'answer-intro',
+      title: answerTitle,
+      paragraphs: [],
+      bullets: [],
+    }
+    if (answerSummary) introSection.paragraphs.push(answerSummary)
+    sections.push(introSection)
+  }
+
+  const structuredSections = Array.isArray(answer?.sections) ? answer.sections : []
+  structuredSections.forEach((section, index) => {
+    const heading = normalizeArticleText(section?.heading || section?.title || '')
+    const nextSection = {
+      id: `structured-${index}-${sections.length}`,
+      title: heading,
+      paragraphs: [],
+      bullets: [],
+    }
+
+    const paragraphs = Array.isArray(section?.paragraphs) ? section.paragraphs : []
+    paragraphs.forEach((paragraph) => addParagraph(nextSection.paragraphs, paragraph))
+
+    const points = Array.isArray(section?.points) ? section.points : []
+    points.forEach((point) => {
+      const text = normalizeArticleText(point?.text || point?.content || '')
+      if (!text) return
+      const citationSuffix = formatCitations(point?.citations)
+      addBullet(nextSection.bullets, `${text}${citationSuffix}`)
+    })
+
+    if (nextSection.title || nextSection.paragraphs.length > 0 || nextSection.bullets.length > 0) {
+      sections.push(nextSection)
+    }
+  })
 
   const formattedSections = Array.isArray(answer?.formatting?.sections)
     ? answer.formatting.sections
