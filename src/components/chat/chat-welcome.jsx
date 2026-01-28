@@ -185,18 +185,62 @@ export const ChatWelcome = () => {
       // Call the real API
       const response = await sendChatMessage(userQuery, sessionId)
 
+      const normalizeText = (text = "") =>
+        text.replace(/\\\*/g, "*").replace(/\\n/g, "\n").trim()
+
+      const buildAnswerSummary = (answerData) => {
+        return normalizeText(answerData?.answer_text || "")
+      }
+
+      const buildAnswerSections = (answerData) => {
+        const sections = Array.isArray(answerData?.formatting?.sections)
+          ? answerData.formatting.sections
+          : []
+        const seenParagraphs = new Set()
+
+        return sections
+          .map((section, sectionIndex) => {
+            const title = normalizeText(section?.title || "")
+            const paragraphs = Array.isArray(section?.paragraphs) ? section.paragraphs : []
+            const cleanedParagraphs = paragraphs
+              .map((paragraph) => normalizeText(paragraph))
+              .filter((paragraph) => paragraph.length > 0)
+              .filter((paragraph) => {
+                const key = paragraph.toLowerCase()
+                if (seenParagraphs.has(key)) return false
+                seenParagraphs.add(key)
+                return true
+              })
+
+            if (!title && cleanedParagraphs.length === 0) return null
+
+            return {
+              id: `section-${sectionIndex}`,
+              title,
+              paragraphs: cleanedParagraphs,
+            }
+          })
+          .filter(Boolean)
+      }
+
+      const buildCopyText = (summary, sections) => {
+        const lines = []
+        if (summary) lines.push(summary)
+        sections.forEach((section) => {
+          if (section.title) lines.push(section.title)
+          section.paragraphs.forEach((paragraph) => lines.push(paragraph))
+          lines.push("")
+        })
+        return lines.join("\n").trim()
+      }
+
       // Parse the API response
       if (response && response.answer) {
         const answerData = response.answer
         
-        // Use the pre-formatted answer_text from API (it already has citation markers like [1], [2], etc.)
-        let formattedContent = answerData.answer_text || ""
-        
-        // Clean up the content - convert markdown-style formatting
-        formattedContent = formattedContent
-          .replace(/\\\*/g, '*')  // Unescape asterisks
-          .replace(/\\n/g, '\n')  // Convert escaped newlines
-          .trim()
+        const summary = buildAnswerSummary(answerData)
+        const sections = buildAnswerSections(answerData)
+        const formattedContent = buildCopyText(summary, sections)
 
         // Map video_resources from API to video sources for display
         const videoSources = (answerData.video_resources || []).map((video, index) => ({
@@ -269,6 +313,8 @@ export const ChatWelcome = () => {
           claims: answerData.claims || [],
           citationDetails: citationDetails,
           videoResources: answerData.video_resources || [],
+          summary,
+          sections,
         }
 
         setMessages((prev) => [...prev, assistantMessage])
@@ -339,7 +385,7 @@ export const ChatWelcome = () => {
 
   return (
     <div className="flex min-h-[calc(100vh-4rem)] flex-col items-center justify-center px-4 py-12 overflow-visible">
-      <div className="w-full max-w-3xl space-y-12 overflow-visible">
+      <div className="w-full max-w-5xl space-y-8 overflow-visible">
         {/* Show logo only when no messages */}
         {messages.length === 0 && (
           <div className="text-center space-y-3">
@@ -353,8 +399,8 @@ export const ChatWelcome = () => {
 
         {/* Show messages when they exist */}
         {messages.length > 0 && (
-          <>
-            <div className="flex items-center gap-4 mb-6">
+          <div className="rounded-2xl border border-gray-200/70 bg-white/90 shadow-lg backdrop-blur-sm dark:border-gray-700/70 dark:bg-gray-900/80">
+            <div className="flex items-center gap-4 border-b border-gray-200/70 px-6 py-4 dark:border-gray-700/70">
               <Button
                 onClick={handleBackClick}
                 variant="ghost"
@@ -364,15 +410,18 @@ export const ChatWelcome = () => {
                 <ArrowLeft className="h-5 w-5" />
                 <span className="sr-only">Back</span>
               </Button>
-              <h2 className="text-xl font-semibold">Chat</h2>
+              <div>
+                <h2 className="text-lg font-semibold">Chat</h2>
+                <p className="text-xs text-muted-foreground">Trusted insights with sources</p>
+              </div>
             </div>
-            <div className="space-y-4 overflow-y-auto max-h-[calc(100vh-350px)] px-2">
+            <div className="space-y-4 overflow-y-auto max-h-[calc(100vh-380px)] px-6 py-5">
             {/* Messages */}
             {messages.map((message) => (
               <div key={message.id}>
                 {message.role === "user" ? (
                   <div className="flex justify-end mb-4">
-                    <div className="max-w-xs bg-sparq text-white rounded-lg px-4 py-2">
+                    <div className="max-w-xs bg-sparq text-white rounded-2xl px-4 py-2 shadow-sm">
                       <p className="text-sm">{message.content}</p>
                     </div>
                   </div>
@@ -394,7 +443,7 @@ export const ChatWelcome = () => {
                 <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-sparq to-purple-600 flex items-center justify-center">
                   <span className="text-white text-xs font-bold">AI</span>
                 </div>
-                <div className="flex-1 max-w-2xl">
+                  <div className="flex-1 max-w-4xl">
                   <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-900">
                     <div className="flex items-center gap-3">
                       <div className="flex items-center gap-1">
@@ -413,13 +462,14 @@ export const ChatWelcome = () => {
 
             <div ref={messagesEndRef} />
             </div>
-          </>
+          </div>
         )}
 
         {/* Main Input Form */}
         <div className="space-y-4">
-          <div className="relative w-full flex items-center gap-2 overflow-visible">
-            <form onSubmit={handleSubmit} className="relative flex-1 overflow-visible">
+          <div className="rounded-2xl border border-gray-200/70 bg-white/90 p-4 shadow-lg backdrop-blur-sm dark:border-gray-700/70 dark:bg-gray-900/80">
+            <div className="relative w-full flex items-center gap-2 overflow-visible">
+              <form onSubmit={handleSubmit} className="relative flex-1 overflow-visible">
               <TooltipProvider>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -445,7 +495,7 @@ export const ChatWelcome = () => {
                 value={input}
                 onChange={handleInputChange}
                 placeholder="Ask @YourFavouriteExpert almost anything"
-                className="h-24 pl-16 pr-28 text-base rounded-2xl"
+                className="h-24 pl-16 pr-28 text-base rounded-2xl bg-gray-50/80 dark:bg-gray-800/60"
               />
               <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1 z-10">
                 {hasInput && (
@@ -563,6 +613,7 @@ export const ChatWelcome = () => {
               )}
             </div>
           </div>
+        </div>
 
           {activeFilters.length > 0 && (
             <div className="flex flex-wrap items-center gap-2 ml-3">

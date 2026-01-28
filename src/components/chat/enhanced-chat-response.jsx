@@ -19,9 +19,12 @@ export function EnhancedChatResponse({
   const [isCopied, setIsCopied] = React.useState(false)
   const [isSaved, setIsSaved] = React.useState(false)
   const [loadingIndices, setLoadingIndices] = React.useState(new Set())
+  const summary = message.summary || ""
+  const sections = Array.isArray(message.sections) ? message.sections : []
+  const hasStructuredContent = summary.length > 0 || sections.length > 0
 
   const handleCopy = async () => {
-    await navigator.clipboard.writeText(message.content)
+    await navigator.clipboard.writeText(message.content || summary)
     setIsCopied(true)
     setTimeout(() => setIsCopied(false), 2000)
   }
@@ -160,6 +163,44 @@ export function EnhancedChatResponse({
     return parts.length > 0 ? parts : parseMarkdownText(processedText)
   }
 
+  const renderStructuredContent = () => (
+    <div className="space-y-6">
+      {summary && (
+        <div className="rounded-xl border border-gray-100 bg-gradient-to-br from-white via-white to-sparq/5 p-4 shadow-sm dark:border-gray-800 dark:from-gray-900 dark:via-gray-900 dark:to-sparq/10">
+          <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+            Summary
+          </p>
+          <p className="mt-2 text-sm text-gray-700 dark:text-gray-200 leading-relaxed">
+            {renderContentWithCitations(summary)}
+          </p>
+        </div>
+      )}
+
+      {sections.map((section) => (
+        <div key={section.id} className="space-y-2">
+          {section.title && (
+            <div className="flex items-center gap-2">
+              <span className="h-1.5 w-1.5 rounded-full bg-sparq/80" />
+              <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                {section.title}
+              </h4>
+            </div>
+          )}
+          <div className="space-y-3">
+            {section.paragraphs.map((paragraph, paragraphIndex) => (
+              <p
+                key={`${section.id}-p-${paragraphIndex}`}
+                className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed"
+              >
+                {renderContentWithCitations(paragraph)}
+              </p>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+
   // Check if this is a simple greeting response (no video resources)
   const isGreetingResponse = message.isGreeting || (!videoResources.length && !videos.length && !message.sourceCount)
 
@@ -191,7 +232,7 @@ export function EnhancedChatResponse({
       <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-sparq to-purple-600 flex items-center justify-center">
         <span className="text-white text-xs font-bold">AI</span>
       </div>
-      <div className="flex-1 max-w-2xl space-y-4">
+      <div className="flex-1 max-w-4xl space-y-4">
         {/* Answer Type Badge */}
         {message.answerType && (
           <Badge className={`text-xs font-semibold px-2.5 py-1 ${
@@ -206,46 +247,50 @@ export function EnhancedChatResponse({
         )}
 
         {/* Main Response Content */}
-        <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-gray-900">
-          <div className="space-y-4">
-            {message.content.split("\n").map((line, index) => {
-              const trimmedLine = line.trim()
-              if (trimmedLine === "") return null
-              
-              // Handle bullet points with *
-              if (trimmedLine.startsWith("*   ") || trimmedLine.startsWith("* ")) {
-                const bulletContent = trimmedLine.replace(/^\*\s+/, "")
-                return (
-                  <div key={index} className="flex items-start gap-3 pl-2">
-                    <span className="text-sparq mt-1.5 text-lg leading-none">•</span>
-                    <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed flex-1">
-                      {renderContentWithCitations(bulletContent)}
-                    </p>
-                  </div>
-                )
-              }
-              
-              // Handle dash bullet points
-              if (trimmedLine.startsWith("- ")) {
-                const bulletContent = trimmedLine.replace(/^-\s+/, "")
-                return (
-                  <div key={index} className="flex items-start gap-3 pl-2">
-                    <span className="text-sparq mt-1.5 text-lg leading-none">•</span>
-                    <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed flex-1">
-                      {renderContentWithCitations(bulletContent)}
-                    </p>
-                  </div>
-                )
-              }
+        <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-gray-900">
+          {hasStructuredContent ? (
+            renderStructuredContent()
+          ) : (
+            <div className="space-y-4">
+              {message.content.split("\n").map((line, index) => {
+                const trimmedLine = line.trim()
+                if (trimmedLine === "") return null
 
-              // Regular paragraph
-              return (
-                <p key={index} className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
-                  {renderContentWithCitations(trimmedLine)}
-                </p>
-              )
-            })}
-          </div>
+                // Handle bullet points with *
+                if (trimmedLine.startsWith("*   ") || trimmedLine.startsWith("* ")) {
+                  const bulletContent = trimmedLine.replace(/^\*\s+/, "")
+                  return (
+                    <div key={index} className="flex items-start gap-3 pl-2">
+                      <span className="text-sparq mt-1.5 text-lg leading-none">•</span>
+                      <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed flex-1">
+                        {renderContentWithCitations(bulletContent)}
+                      </p>
+                    </div>
+                  )
+                }
+
+                // Handle dash bullet points
+                if (trimmedLine.startsWith("- ")) {
+                  const bulletContent = trimmedLine.replace(/^-\s+/, "")
+                  return (
+                    <div key={index} className="flex items-start gap-3 pl-2">
+                      <span className="text-sparq mt-1.5 text-lg leading-none">•</span>
+                      <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed flex-1">
+                        {renderContentWithCitations(bulletContent)}
+                      </p>
+                    </div>
+                  )
+                }
+
+                // Regular paragraph
+                return (
+                  <p key={index} className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
+                    {renderContentWithCitations(trimmedLine)}
+                  </p>
+                )
+              })}
+            </div>
+          )}
         </div>
 
         {/* Video Sources Section */}
